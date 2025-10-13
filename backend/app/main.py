@@ -1,13 +1,13 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.database import engine
-from app.models import user, resume, job_application, analysis_result
+from app.models import user, resume, analysis_result
+from app.services.gemini_ai import gemini_ai_service
 from app.api.routes import auth, resumes
 
 # Create database tables
 user.Base.metadata.create_all(bind=engine)
 resume.Base.metadata.create_all(bind=engine)
-job_application.Base.metadata.create_all(bind=engine)
 analysis_result.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="AI Resume Analyzer API", version="1.0.0")
@@ -36,3 +36,4 @@ def health_check():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+

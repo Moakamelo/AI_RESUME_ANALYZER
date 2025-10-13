@@ -1,4 +1,3 @@
-# app/services/preview_generator.py
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
 import tempfile
@@ -7,7 +6,7 @@ import os
 from app.services.supabase_storage import SupabaseStorageService
 
 try:
-    import fitz  # PyMuPDF
+    import fitz 
     PYMUPDF_AVAILABLE = True
 except ImportError:
     PYMUPDF_AVAILABLE = False
@@ -91,7 +90,6 @@ class PreviewGenerator:
             temp_dir = tempfile.gettempdir()
             image_path = Path(temp_dir) / f"preview_{Path(local_file_path).stem}_{page}.jpg"
             
-            # FIXED: Save as JPEG without quality parameter
             # PyMuPDF automatically uses good quality for JPEG
             pix.save(str(image_path))
             
@@ -161,7 +159,6 @@ class PreviewGenerator:
             
         except Exception as e:
             print(f"❌ Failed to create placeholder: {str(e)}")
-            # Last resort - create basic image
             try:
                 temp_dir = tempfile.gettempdir()
                 image_path = Path(temp_dir) / f"preview_error_{os.urandom(4).hex()}.jpg"

@@ -1,4 +1,3 @@
-# app/services/file_processor.py
 import os
 from fastapi import UploadFile, HTTPException
 from PyPDF2 import PdfReader
@@ -48,6 +47,7 @@ class FileProcessor:
         
         return {
             "file_path": upload_result["stored_filename"],
+            "saved_filename": upload_result["stored_filename"],  
             "original_filename": upload_result["original_filename"],
             "extracted_text": extracted_text,
             "file_type": file.content_type,
@@ -103,7 +103,6 @@ class FileProcessor:
         """Extract text from file content without reading file again"""
         file_ext = Path(filename).suffix.lower()
         
-        # Create temporary file for text extraction
         with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_file:
             temp_file.write(file_content)
             temp_file_path = temp_file.name
@@ -124,7 +123,6 @@ class FileProcessor:
             print(f"❌ Text extraction error: {str(e)}")
             return ""
         finally:
-            # Clean up temporary file
             try:
                 os.unlink(temp_file_path)
             except:
@@ -164,8 +162,6 @@ class FileProcessor:
     def extract_text_from_doc(file_path: str) -> str:
         """Extract text from DOC file - you might need additional libraries for this"""
         try:
-            # For .doc files, you might need python-docx2txt or antiword
-            # This is a fallback that returns empty string
             print("⚠️ .doc file extraction not fully supported. Consider converting to .docx")
             return ""
         except Exception as e:

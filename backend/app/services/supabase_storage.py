@@ -67,8 +67,6 @@ class SupabaseStorageService:
             traceback.print_exc()
             return None
 
-    # app/services/supabase_storage.py
-
     def verify_file_exists(self, file_path: str) -> bool:
         """Verify that a file exists in storage"""
         try:
@@ -111,7 +109,6 @@ class SupabaseStorageService:
             print(f"🔗 Creating signed URL for: {file_path}")
             print(f"🔗 Using bucket: {self.bucket_name}")
             
-            # Skip verification and try to create signed URL directly
             # Supabase will handle file existence internally
             response = self.supabase.storage.from_(self.bucket_name).create_signed_url(
                 file_path, expires_in

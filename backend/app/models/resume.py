@@ -1,8 +1,8 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, JSON, Boolean, Float
-from sqlalchemy.orm import declarative_base
+# app/models/resume.py
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
-from datetime import datetime
 from app.core.database import Base
+from datetime import datetime
 
 class Resume(Base):
     __tablename__ = "resumes"
@@ -10,16 +10,18 @@ class Resume(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     filename = Column(String, nullable=False)
-    file_path = Column(String, nullable=False)  # Path to stored file
-    file_size = Column(Integer)  # File size in bytes
-    file_type = Column(String)   # pdf, docx, txt
+    file_path = Column(String, nullable=False)
+    file_size = Column(Integer)
+    file_type = Column(String)
     original_filename = Column(String)
     upload_date = Column(DateTime, default=datetime.utcnow)
     is_active = Column(Boolean, default=True)
-    
-    # Extracted content (for faster analysis)
     extracted_text = Column(Text)
     
     # Relationships
     user = relationship("User", back_populates="resumes")
-    job_applications = relationship("JobApplication", back_populates="resume")
+    analysis_results = relationship(
+        "AnalysisResult", 
+        back_populates="resume",
+        cascade="all, delete-orphan"
+    )

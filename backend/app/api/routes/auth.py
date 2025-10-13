@@ -7,6 +7,7 @@ from app.core.config import settings
 from app.schemas.auth import Token, LoginRequest
 from app.schemas.user import UserCreate, UserResponse
 from app.models.user import User
+from app.models.resume import Resume
 from app.api.dependencies import get_current_user
 from fastapi.responses import JSONResponse
 
@@ -140,3 +141,5 @@ def update_user_profile(
     db.commit()
     db.refresh(current_user)
     return current_user
+
+

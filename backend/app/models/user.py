@@ -21,4 +21,4 @@ class User(Base):
     
     # Relationships
     resumes = relationship("Resume", back_populates="user")
-    job_applications = relationship("JobApplication", back_populates="user")
+   

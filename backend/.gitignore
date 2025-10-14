@@ -1,6 +1,0 @@
-.env/
-__pylance__/
-.vscode/
-venv/
-__pycache__/
-config.py

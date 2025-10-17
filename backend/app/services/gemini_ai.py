@@ -1,8 +1,11 @@
 import os
+import asyncio
 from google import genai
 from typing import Dict, Optional, List
 import json
 import logging
+from app.core.performance import timer
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 logger = logging.getLogger(__name__)
 
@@ -17,23 +20,30 @@ class GeminiAIService:
         
         self.model = "gemini-2.0-flash-exp"
 
+    @retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=2, max=10))
+    @timer("gemini_api_call")
     async def analyze_resume_ats(self, extracted_text: str, job_title: Optional[str] = None, job_description: Optional[str] = None) -> Dict:
-        """ATS-focused resume analysis using the new response format"""
+        """ATS-focused resume analysis with retry logic and timing"""
         try:
             logger.info("🤖 Starting ATS resume analysis with new format...")
             
-            prompt = self._build_ats_analysis_prompt(extracted_text, job_title, job_description)
+            # Add timeout to prevent hanging requests
+            async with asyncio.timeout(30):  # 30 second timeout
+                prompt = self._build_ats_analysis_prompt(extracted_text, job_title, job_description)
+                
+                response = self.client.models.generate_content(
+                    model=self.model,
+                    contents=prompt
+                )
+                
+                analysis_result = self._parse_ai_response(response.text)
+                
+                logger.info("✅ ATS resume analysis completed successfully")
+                return analysis_result
             
-            response = self.client.models.generate_content(
-                model=self.model,
-                contents=prompt
-            )
-            
-            analysis_result = self._parse_ai_response(response.text)
-            
-            logger.info("✅ ATS resume analysis completed successfully")
-            return analysis_result
-            
+        except asyncio.TimeoutError:
+            logger.error("❌ Gemini API request timed out after 30 seconds")
+            return self._get_fallback_analysis("Request timeout")
         except Exception as e:
             logger.error(f"❌ Gemini AI ATS analysis error: {str(e)}")
             return self._get_fallback_analysis(str(e))
@@ -273,27 +283,36 @@ CRITICAL INSTRUCTIONS:
             "error_message": error_message
         }
 
+    @timer("gemini_health_check")
     async def check_api_health(self) -> Dict:
         """Check if the Gemini API is working properly"""
         try:
-            response = self.client.models.generate_content(
-                model=self.model,
-                contents="Say 'OK' in JSON format: {'status': 'ok'}"
-            )
-            
-            if "ok" in response.text.lower():
-                return {
-                    "status": "healthy", 
-                    "message": "Gemini API is working correctly",
-                    "model": self.model
-                }
-            else:
-                return {
-                    "status": "unhealthy", 
-                    "message": "Unexpected API response",
-                    "response": response.text[:100]
-                }
+            # Add timeout for health check too
+            async with asyncio.timeout(10):  # 10 second timeout for health check
+                response = self.client.models.generate_content(
+                    model=self.model,
+                    contents="Respond with exactly: OK"
+                )
                 
+                if "ok" in response.text.lower():
+                    return {
+                        "status": "healthy", 
+                        "message": "Gemini API is working correctly",
+                        "model": self.model
+                    }
+                else:
+                    return {
+                        "status": "unhealthy", 
+                        "message": "Unexpected API response",
+                        "response": response.text[:100]
+                    }
+                    
+        except asyncio.TimeoutError:
+            return {
+                "status": "error", 
+                "message": "Health check timeout - API may be slow",
+                "model": self.model
+            }
         except Exception as e:
             return {
                 "status": "error", 
@@ -303,7 +322,7 @@ CRITICAL INSTRUCTIONS:
 
 try:
     gemini_ai_service = GeminiAIService()
-    logger.info("🎯 Gemini AI service ready with new response format")
+    logger.info("🎯 Gemini AI service ready with performance optimizations")
 except Exception as e:
     logger.error(f"💥 Gemini AI service failed to initialize: {e}")
     

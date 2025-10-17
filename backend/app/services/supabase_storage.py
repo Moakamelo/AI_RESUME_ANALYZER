@@ -5,6 +5,7 @@ from typing import Optional
 from fastapi import UploadFile, HTTPException
 from supabase import create_client, Client
 import traceback
+from app.core.performance import timer
 
 class SupabaseStorageService:
     def __init__(self):
@@ -22,7 +23,8 @@ class SupabaseStorageService:
         except Exception as e:
             print(f"❌ Failed to initialize Supabase storage: {e}")
             raise
-
+ 
+    @timer("file_upload")
     async def upload_file(self, file: UploadFile, client_file_id: int, document_type: str) -> dict:
         try:
             print(f"📤 Starting file upload: {file.filename}")
@@ -66,7 +68,8 @@ class SupabaseStorageService:
             print(f"❌ Upload error: {str(e)}")
             traceback.print_exc()
             return None
-
+    
+    @timer("file_verification")
     def verify_file_exists(self, file_path: str) -> bool:
         """Verify that a file exists in storage"""
         try:
@@ -102,7 +105,8 @@ class SupabaseStorageService:
             print(f"❌ Error verifying file existence: {e}")
             traceback.print_exc()
             return False
-
+        
+    @timer("create_signed_url")
     def create_signed_url(self, file_path: str, expires_in: int = 3600) -> Optional[str]:
         """Create a signed URL for file download"""
         try:
@@ -131,7 +135,8 @@ class SupabaseStorageService:
             print(f"❌ Signed URL creation error: {str(e)}")
             traceback.print_exc()
             return None
-
+        
+    @timer("delete_file_sync")
     def delete_file_sync(self, file_path: str) -> bool:
         """Synchronous version of delete_file"""
         try:
@@ -154,7 +159,8 @@ class SupabaseStorageService:
             print(f"❌ Error deleting file {file_path}: {str(e)}")
             traceback.print_exc()
             return False
-
+        
+    @timer("delete_file_async")
     async def delete_file(self, file_path: str) -> bool:
         """Async wrapper for delete_file"""
         return self.delete_file_sync(file_path)
@@ -170,7 +176,8 @@ class SupabaseStorageService:
         except Exception as e:
             print(f"❌ Error listing bucket files: {e}")
             return []
-
+        
+    @timer("list_directory_files")
     def list_directory_files(self, directory: str = "") -> list:
         """List files in a specific directory"""
         try:
@@ -182,7 +189,7 @@ class SupabaseStorageService:
         except Exception as e:
             print(f"❌ Error listing directory files: {e}")
             return []
-
+    @timer
     def get_file_info(self, file_path: str) -> Optional[dict]:
         """Get information about a specific file"""
         try:
@@ -196,7 +203,8 @@ class SupabaseStorageService:
         except Exception as e:
             print(f"❌ Error getting file info: {e}")
             return None
-
+        
+    @timer("download_file")
     def download_file(self, file_path: str) -> Optional[bytes]:
         """Download file content from Supabase"""
         try:
@@ -215,7 +223,8 @@ class SupabaseStorageService:
             print(f"❌ Download error: {str(e)}")
             traceback.print_exc()
             return None
-
+        
+    @timer("get_public_url")
     def get_public_url(self, file_path: str) -> Optional[str]:
         """Get public URL for file (if bucket is public)"""
         try:
@@ -224,7 +233,7 @@ class SupabaseStorageService:
         except Exception as e:
             print(f"❌ Error getting public URL: {e}")
             return None
-
+  
     # Debug method to check bucket structure
     def debug_bucket_structure(self):
         """Debug method to see the exact structure of files in the bucket"""
@@ -242,3 +251,14 @@ class SupabaseStorageService:
         except Exception as e:
             print(f"❌ Error debugging bucket structure: {e}")
             return []
+
+    def health_check(self):
+        """Check if Supabase storage is accessible"""
+        try:
+            # Try to list files in the bucket as a health check
+            files = self.supabase.storage.from_(self.bucket_name).list(limit=1)
+            # If we get any response (even empty), the connection is working
+            return True
+        except Exception as e:
+            print(f"❌ Supabase storage health check failed: {e}")
+            raise Exception(f"Supabase storage health check failed: {str(e)}")

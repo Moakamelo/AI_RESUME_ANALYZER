@@ -17,8 +17,8 @@
 
 ## 🎯 Project Overview
 
-The **AI Resume Analyzer** is a **full-stack, AI-powered system** that provides instant, detailed feedback on resume **ATS (Applicant Tracking System)** compatibility.  
-It leverages **Google’s Gemini AI** for intelligent scoring and improvement suggestions — designed for **speed, scalability, and compliance**.
+The **AI Resume Analyzer** is a **backend, AI-powered system** that provides instant, detailed feedback on resume **ATS (Applicant Tracking System)** compatibility.  
+It leverages **Google’s Gemini AI** for intelligent scoring and improvement suggestions, designed for **speed, scalability, and compliance**.
 
 ---
 
@@ -37,20 +37,8 @@ It leverages **Google’s Gemini AI** for intelligent scoring and improvement su
 ---
 
 ## 🧱 System Architecture Diagram
+![Architecture Diagram](/documents/image.png)
 
-```mermaid
-graph TD
-    A[Client / UI] -->|API Request| B(FastAPI Backend)
-    B -->|Auth| C[JWT Authentication]
-    B -->|Cache Check| D[Redis Cache]
-    B -->|DB Query| E[(PostgreSQL Database)]
-    B -->|File Upload| F[Supabase Storage]
-    B -->|AI Request| G[Google Gemini AI]
-    D -->|Hit| B
-    G -->|JSON Response| B
-    E -->|Data| B
-    F -->|Files| B
-    B -->|JSON Response| A
 
 ## ⚡ Key Technical Achievements
 
@@ -124,3 +112,77 @@ def get_cached_analysis(user_id, resume_text, job_desc, job_title):
     resume_fingerprint = hashlib.md5(resume_text.encode()).hexdigest()
     job_fingerprint = hashlib.md5(f"{job_title}_{job_desc}".encode()).hexdigest()
     return f"analysis:{user_id}:{resume_fingerprint}:{job_fingerprint}"
+```
+
+## 🧵 Performance Optimization
+
+- **Async/await background AI processing**  
+- **Connection pooling** with SQLAlchemy  
+- **Efficient file cleanup** to reduce memory footprint  
+- **Concurrent API calls** and file processing  
+
+---
+
+## 🛡️ Security Implementation
+
+- **Password hashing** using `bcrypt` with salt  
+- **ID hashing** with SHA-256 + secret pepper  
+- **Strict input validation** and schema enforcement  
+- **Configured CORS** for cross-origin protection  
+
+---
+
+## 💼 Business & User Impact
+
+### 💰 Cost Efficiency
+- **50% fewer AI API calls** via smart caching  
+- Reduced infrastructure needs through async workloads  
+- Horizontal scalability for concurrent users  
+
+### ⚡ User Experience
+- Instant results for cached analyses (**2.1s vs 12.4s**)  
+- Reliable service uptime with fallback mode  
+- Detailed, actionable resume feedback  
+
+---
+
+## 🧠 Technical Skills Demonstrated
+
+| Domain | Skills |
+|--------|--------|
+| **Backend Development** | FastAPI, SQLAlchemy, PostgreSQL, Redis |
+| **AI Integration** | Google Gemini AI, Prompt Engineering |
+| **Security** | JWT, bcrypt, SHA-256, POPI Act Compliance |
+| **System Design** | Async architecture, caching, microservices |
+| **DevOps & Monitoring** | CI/CD readiness, metrics, error tracking |
+
+---
+
+## 🔮 Future Enhancements
+
+### 🌍 Planned Features
+- Multi-language resume analysis  
+- Resume insights dashboard  
+- Third-party integration API  
+- Progressive Web App (PWA) frontend  
+
+### ☁️ Scalability Improvements
+- Kubernetes deployment  
+- CDN integration for global speed  
+- Distributed Redis cluster  
+- Automated load testing  
+
+---
+
+## 📞 Technical Contact
+
+This project demonstrates **advanced backend engineering expertise** focused on:
+
+> ⚙️ Performance Optimization  
+> 🤖 AI Integration  
+> 🧱 Scalable System Architecture  
+> 🔐 Security & Compliance  
+
+Built with **cutting-edge technologies** and **production-grade engineering practices**.
+
+**Performance-Optimized • AI-Powered • Production-Ready 🚀**

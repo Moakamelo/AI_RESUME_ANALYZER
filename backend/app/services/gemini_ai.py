@@ -1,10 +1,11 @@
 import os
 import asyncio
 from google import genai
-from typing import Dict, Optional, List
+from typing import Dict, Optional
 import json
 import logging
 from app.core.performance import timer
+from app.core.cache import resume_cache  
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 logger = logging.getLogger(__name__)
@@ -22,13 +23,27 @@ class GeminiAIService:
 
     @retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=2, max=10))
     @timer("gemini_api_call")
-    async def analyze_resume_ats(self, extracted_text: str, job_title: Optional[str] = None, job_description: Optional[str] = None) -> Dict:
-        """ATS-focused resume analysis with retry logic and timing"""
+    async def analyze_resume_ats(self, extracted_text: str, job_title: Optional[str] = None, job_description: Optional[str] = None, user_id: str = "anonymous") -> Dict:
+        """ATS-focused resume analysis with caching and retry logic"""
+        
+        # 1. Check cache first
+        cached_result = resume_cache.get_cached_analysis(
+            user_id=user_id,
+            resume_text=extracted_text,
+            job_desc=job_description,
+            job_title=job_title
+        )
+        
+        if cached_result:
+            logger.info("🎯 Serving cached analysis result")
+            cached_result["source"] = "cache"
+            return cached_result
+        
+        # 2. If not cached, call Gemini API
         try:
-            logger.info("🤖 Starting ATS resume analysis with new format...")
+            logger.info("🤖 Starting ATS resume analysis (cache miss)...")
             
-            # Add timeout to prevent hanging requests
-            async with asyncio.timeout(30):  # 30 second timeout
+            async with asyncio.timeout(30):
                 prompt = self._build_ats_analysis_prompt(extracted_text, job_title, job_description)
                 
                 response = self.client.models.generate_content(
@@ -38,15 +53,32 @@ class GeminiAIService:
                 
                 analysis_result = self._parse_ai_response(response.text)
                 
+                # 3. Cache successful results
+                if not analysis_result.get('analysis_error'):
+                    resume_cache.set_cached_analysis(
+                        user_id=user_id,
+                        resume_text=extracted_text,
+                        job_desc=job_description,
+                        job_title=job_title,
+                        analysis_result=analysis_result
+                    )
+                    analysis_result["source"] = "api"
+                else:
+                    analysis_result["source"] = "api_error"
+                
                 logger.info("✅ ATS resume analysis completed successfully")
                 return analysis_result
             
         except asyncio.TimeoutError:
             logger.error("❌ Gemini API request timed out after 30 seconds")
-            return self._get_fallback_analysis("Request timeout")
+            error_result = self._get_fallback_analysis("Request timeout")
+            error_result["source"] = "timeout"
+            return error_result
         except Exception as e:
             logger.error(f"❌ Gemini AI ATS analysis error: {str(e)}")
-            return self._get_fallback_analysis(str(e))
+            error_result = self._get_fallback_analysis(str(e))
+            error_result["source"] = "error"
+            return error_result
 
     def _build_ats_analysis_prompt(self, resume_text: str, job_title: Optional[str] = None, job_description: Optional[str] = None) -> str:
         """Build ATS-focused resume analysis prompt using the new format"""
@@ -287,8 +319,7 @@ CRITICAL INSTRUCTIONS:
     async def check_api_health(self) -> Dict:
         """Check if the Gemini API is working properly"""
         try:
-            # Add timeout for health check too
-            async with asyncio.timeout(10):  # 10 second timeout for health check
+            async with asyncio.timeout(10):
                 response = self.client.models.generate_content(
                     model=self.model,
                     contents="Respond with exactly: OK"
@@ -322,15 +353,19 @@ CRITICAL INSTRUCTIONS:
 
 try:
     gemini_ai_service = GeminiAIService()
-    logger.info("🎯 Gemini AI service ready with performance optimizations")
+    logger.info("🎯 Gemini AI service ready with caching integration")
 except Exception as e:
     logger.error(f"💥 Gemini AI service failed to initialize: {e}")
     
     class FallbackAIService:
         async def analyze_resume_ats(self, *args, **kwargs):
-            return self._get_fallback_analysis("Service initialization failed")
+            result = self._get_fallback_analysis("Service initialization failed")
+            result["source"] = "fallback"
+            return result
+            
         async def check_api_health(self):
             return {"status": "error", "message": "Service not initialized"}
+            
         def _get_fallback_analysis(self, error_message: str) -> Dict:
             return {
                 "overallScore": 50,

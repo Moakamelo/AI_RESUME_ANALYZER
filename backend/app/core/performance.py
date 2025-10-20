@@ -16,8 +16,14 @@ def timer(metric_name: str):
     FIXED: Properly handles both sync and async functions
     """
     def decorator(func: Callable):
+        """
+        Decorator function
+        """
         @functools.wraps(func)
         async def async_wrapper(*args, **kwargs):
+            """"
+            Wrapper for asynchronous functions
+            """
             start_time = time.perf_counter()
             try:
                 result = await func(*args, **kwargs)
@@ -35,6 +41,11 @@ def timer(metric_name: str):
         
         @functools.wraps(func)
         def sync_wrapper(*args, **kwargs):
+            """
+            Wrapper for synchronous functions
+
+            """
+
             start_time = time.perf_counter()
             try:
                 result = func(*args, **kwargs)
@@ -76,9 +87,7 @@ def timing_context(metric_name: str):
         logger.info(f"⏱️ {metric_name}: {duration:.3f}s")
 
 def get_performance_summary() -> Dict[str, Any]:
-    """
-    Get summary statistics for all performance metrics
-    """
+    """Get summary statistics for all performance metrics"""
     summary = {}
     for metric_name, durations in performance_metrics.items():
         if durations:

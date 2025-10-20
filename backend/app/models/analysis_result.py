@@ -1,4 +1,3 @@
-# app/models/analysis_result.py
 from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, JSON, Float
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -25,8 +24,9 @@ class AnalysisResult(Base):
     summary = Column(Text)
     raw_analysis = Column(JSON, nullable=True)
     analysis_date = Column(DateTime, default=datetime.utcnow)
-    ai_model_used = Column(String, default="gemini-pro")
+    ai_model_used = Column(String, default="gemini-ai")
     analysis_version = Column(String, default="1.0")
+    analysis_source = Column(String, default="gimini_ai")  # e.g., "gemini_ai", "custom_model"
     
     # Relationships
     resume = relationship("Resume", back_populates="analysis_results")

@@ -1,4 +1,3 @@
-# backend/app/schemas/resume.py
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict

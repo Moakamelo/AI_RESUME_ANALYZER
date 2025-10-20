@@ -4,12 +4,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.database import engine
 from app.models import user, resume, analysis_result
 from app.services.gemini_ai import GeminiAIService
-from app.api.routes import auth, resumes
+from app.api.routes import auth, resumes, cache
 from app.core.database import get_db
 from datetime import datetime
 from app.core.performance import get_performance_summary, clear_metrics
 from sqlalchemy.orm import Session
 from fastapi.responses import JSONResponse
+from app.api.dependencies import get_current_user
 from app.services.supabase_storage import SupabaseStorageService
 
 # Initialize services
@@ -35,13 +36,14 @@ app.add_middleware(
 # Routers
 app.include_router(auth.router, prefix="/api/auth", tags=["authentication"])
 app.include_router(resumes.router, prefix="/api/resumes", tags=["resumes"])
+app.include_router(cache.router, prefix="/cache", tags=["cache"])
 
 @app.get("/")
 def read_root():
     return {"message": "AI Resume Analyzer API is running"}
 
 @app.get("/health")
-def health_check(db: Session = Depends(get_db)):  
+async def health_check(db: Session = Depends(get_db)):  
     health_status = {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
@@ -70,9 +72,9 @@ def health_check(db: Session = Depends(get_db)):
         failed_checks.append("supabase_storage")
         health_status["supabase_error"] = str(e)
     
-    # 3. Check Gemini API 
+    # 3. Check Gemini API - FIX: Add await
     try:
-        health_result = gemini_ai_service.check_api_health()
+        health_result = await gemini_ai_service.check_api_health()  # Add await here
         health_status["checks"]["gemini_api"] = health_result.get("status") == "healthy"
         if not health_status["checks"]["gemini_api"]:
             raise Exception(health_result.get("message", "Gemini API check failed"))
@@ -89,7 +91,7 @@ def health_check(db: Session = Depends(get_db)):
         return JSONResponse(health_status, status_code=200)
 
 @app.get("/performance/metrics")
-async def get_performance_metrics():
+async def get_performance_metrics(current_user=Depends(get_current_user)):
     """
     Get current performance metrics summary
     """
@@ -100,16 +102,15 @@ async def get_performance_metrics():
     }
 
 @app.delete("/performance/metrics")
-async def clear_performance_metrics():
+async def clear_performance_metrics(current_user=Depends(get_current_user)):
     """
     Clear all performance metrics
     """
     clear_metrics()
     return {"message": "Performance metrics cleared"}
 
-
 @app.get("/performance/breakdown")
-async def get_performance_breakdown():
+async def get_performance_breakdown(current_user=Depends(get_current_user)):
     """
     Get performance breakdown for typical resume analysis
     """
@@ -192,6 +193,7 @@ async def get_performance_breakdown():
         "timestamp": datetime.utcnow().isoformat(),
         "metrics_available": list(summary.keys())
     }
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)

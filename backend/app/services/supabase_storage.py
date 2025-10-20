@@ -1,4 +1,3 @@
-# app/services/supabase_storage.py
 import os
 import uuid
 from typing import Optional

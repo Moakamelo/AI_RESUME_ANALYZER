@@ -3,6 +3,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.performance import timer, timing_context
+from app.core.cache import resume_cache 
 from app.models.user import User
 from app.models.resume import Resume
 from app.models.analysis_result import AnalysisResult
@@ -34,7 +35,7 @@ def structure_ai_analysis(ai_result: dict) -> dict:
         # Handle service errors
         if ai_result.get("analysis_error"):
             error_result = get_error_analysis(ai_result.get("error_message", "AI service error"))
-            error_result["raw_analysis"] = ai_result  # Store the error response too
+            error_result["raw_analysis"] = ai_result 
             return error_result
 
         # Extract tips for each category to use as recommendations
@@ -116,9 +117,9 @@ def structure_ai_analysis(ai_result: dict) -> dict:
                 "missing_keywords": []
             },
             "skill_gaps": {},
-            "recommendations": all_recommendations[:10],  # Limit to 10 recommendations
+            "recommendations": all_recommendations[:10], 
             "summary": summary,
-            "raw_analysis": ai_result  # Store the complete raw analysis
+            "raw_analysis": ai_result  
         }
     except Exception as e:
         print(f"❌ Error structuring AI analysis: {str(e)}")
@@ -180,7 +181,7 @@ async def upload_and_analyze_resume(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Upload resume and perform comprehensive AI analysis"""
+    """Upload resume and perform comprehensive AI analysis with caching"""
     
     try:
         # Step 1: Process the uploaded file
@@ -221,15 +222,39 @@ async def upload_and_analyze_resume(
             db.commit()
             db.refresh(resume)
         
-        # Step 3: Analyze with AI (in background for better performance)
-        background_tasks.add_task(
-            perform_ai_analysis,
-            resume.id,
-            processed_file["extracted_text"],
-            job_title,
-            job_description,
-            db  # Pass db session to background task
+        # Step 3: Check cache first before background processing
+        cached_result = resume_cache.get_cached_analysis(
+            user_id=str(current_user.id),
+            resume_text=processed_file["extracted_text"],
+            job_desc=job_description,
+            job_title=job_title
         )
+        
+        if cached_result:
+            # Cache hit - save to database immediately
+            print("🎯 Cache hit - saving cached analysis to database")
+            background_tasks.add_task(
+                save_cached_analysis_to_db,
+                resume.id,
+                cached_result,
+                db
+            )
+            analysis_status = "completed_cached"
+            analysis_message = "Analysis completed instantly using cached results 🚀"
+        else:
+            # Cache miss - process in background
+            print("💥 Cache miss - processing with AI in background")
+            background_tasks.add_task(
+                perform_ai_analysis,
+                resume.id,
+                processed_file["extracted_text"],
+                job_title,
+                job_description,
+                str(current_user.id),  
+                db
+            )
+            analysis_status = "processing"
+            analysis_message = "AI analysis is being processed in the background"
         
         # Step 4: Generate preview immediately
         try:
@@ -251,10 +276,11 @@ async def upload_and_analyze_resume(
                 "preview_available": preview_available
             },
             "analysis_result": {
-                "status": "processing",
-                "message": "AI analysis is being processed in the background",
+                "status": analysis_status,
+                "message": analysis_message,
                 "job_title": job_title,
-                "job_description_provided": bool(job_description)
+                "job_description_provided": bool(job_description),
+                "source": "cache" if cached_result else "api"
             }
         }
     
@@ -264,22 +290,52 @@ async def upload_and_analyze_resume(
         print(f"❌ Upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
-# REMOVED DUPLICATE: Only keep one upload-and-analyze endpoint
-@router.post("/upload-and-analyze", response_model=UploadResponse)
-@timer("upload_and_analyze_resume_legacy")
-async def upload_and_analyze_resume_legacy(
-    background_tasks: BackgroundTasks,
-    file: UploadFile = File(...),
-    job_title: Optional[str] = Form(None),
-    job_description: Optional[str] = Form(None),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+@timer("save_cached_analysis_to_db")
+async def save_cached_analysis_to_db(
+    resume_id: int, 
+    cached_result: dict,
+    db: Session
 ):
-    """Legacy endpoint - redirects to /upload"""
-    # Call the main function directly
-    return await upload_and_analyze_resume(
-        background_tasks, file, job_title, job_description, current_user, db
-    )
+    """Save cached analysis result to database"""
+    try:
+        print(f"💾 Saving cached analysis to database for resume {resume_id}")
+        
+        # Convert cached result to our schema
+        structured_analysis = structure_ai_analysis(cached_result)
+        
+        # Save to database
+        with timing_context("database_cached_save"):
+            ai_analysis = AnalysisResult(
+                resume_id=resume_id,
+                overall_score=structured_analysis["overall_score"],
+                ats_score=structured_analysis["ats_score"],
+                tone_style_score=structured_analysis["tone_style_score"],
+                content_score=structured_analysis["content_score"],
+                structure_score=structured_analysis["structure_score"],
+                skills_score=structured_analysis["skills_score"],
+                tone_style_analysis=structured_analysis["tone_style_analysis"],
+                content_analysis=structured_analysis["content_analysis"],
+                structure_analysis=structured_analysis["structure_analysis"],
+                skills_analysis=structured_analysis["skills_analysis"],
+                keyword_matches=structured_analysis["keyword_matches"],
+                skill_gaps=structured_analysis["skill_gaps"],
+                recommendations=structured_analysis["recommendations"],
+                summary=structured_analysis["summary"],
+                analysis_date=datetime.utcnow(),
+                ai_model_used="gemini-2.0-flash-exp",
+                analysis_version="1.0",
+                analysis_source="cache"  
+            )
+            
+            db.add(ai_analysis)
+            db.commit()
+        
+        print(f"✅ Cached analysis saved to database for resume {resume_id}")
+        
+    except Exception as e:
+        print(f"❌ Failed to save cached analysis: {str(e)}")
+
+
 
 @timer("perform_ai_analysis")
 async def perform_ai_analysis(
@@ -287,28 +343,31 @@ async def perform_ai_analysis(
     resume_text: str, 
     job_title: Optional[str], 
     job_description: Optional[str],
+    user_id: str,  # Add user_id parameter for caching
     db: Session  # Receive db session
 ):
-    """Background task to perform AI analysis"""
+    """Background task to perform AI analysis with caching"""
     try:
         print(f"🤖 Starting AI analysis for resume {resume_id}")
+        print(f"👤 User ID: {user_id}")
         print(f"📋 Job Title: {job_title}")
         print(f"📄 Job Description Length: {len(job_description) if job_description else 0}")
         
-        # Analyze with AI
+        # Analyze with AI (this will now use caching internally)
         analysis_result = await gemini_ai_service.analyze_resume_ats(
-            resume_text, 
-            job_title,
-            job_description
+            extracted_text=resume_text, 
+            job_title=job_title,
+            job_description=job_description,
+            user_id=user_id  
         )
         
-        print(f"✅ Raw AI analysis received. Overall score: {analysis_result.get('overall_score', 'N/A')}")
+        source = analysis_result.get("source", "unknown")
+        print(f"✅ AI analysis received from {source}. Overall score: {analysis_result.get('overallScore', 'N/A')}")
         
         # Convert AI result to match our schema
         structured_analysis = structure_ai_analysis(analysis_result)
         
         print(f"✅ Structured analysis completed. Overall score: {structured_analysis['overall_score']}")
-        print(f"✅ Skill gaps type: {type(structured_analysis['skill_gaps'])}")
         
         # Save analysis results with timing
         with timing_context("database_analysis_save"):
@@ -330,13 +389,14 @@ async def perform_ai_analysis(
                 summary=structured_analysis["summary"],
                 analysis_date=datetime.utcnow(),
                 ai_model_used="gemini-2.0-flash-exp",
-                analysis_version="1.0"
+                analysis_version="1.0",
+                analysis_source=source  
             )
             
             db.add(ai_analysis)
             db.commit()
         
-        print(f"✅ AI analysis saved to database for resume {resume_id}")
+        print(f"✅ AI analysis saved to database for resume {resume_id} (source: {source})")
         
     except Exception as e:
         print(f"❌ AI analysis failed for resume {resume_id}: {str(e)}")
@@ -362,7 +422,8 @@ async def perform_ai_analysis(
                     recommendations=["Please try re-analyzing the resume"],
                     analysis_date=datetime.utcnow(),
                     ai_model_used="gemini-2.0-flash-exp",
-                    analysis_version="1.0"
+                    analysis_version="1.0",
+                    analysis_source="error"
                 )
                 db.add(error_analysis)
                 db.commit()
@@ -440,7 +501,7 @@ async def reanalyze_resume(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Re-analyze an existing resume"""
+    """Re-analyze an existing resume with caching"""
     with timing_context("database_reanalyze_query"):
         resume = db.query(Resume).filter(
             Resume.id == resume_id,
@@ -453,21 +514,46 @@ async def reanalyze_resume(
         if not resume.extracted_text:
             raise HTTPException(status_code=400, detail="No text content available for analysis")
     
-    # Trigger background analysis
-    background_tasks.add_task(
-        perform_ai_analysis,
-        resume.id,
-        resume.extracted_text,
-        job_title,
-        job_description,
-        db
+    # Check cache first
+    cached_result = resume_cache.get_cached_analysis(
+        user_id=str(current_user.id),
+        resume_text=resume.extracted_text,
+        job_desc=job_description,
+        job_title=job_title
     )
     
+    if cached_result:
+        # Cache hit - save to database immediately
+        print("🎯 Cache hit for reanalysis - using cached results")
+        background_tasks.add_task(
+            save_cached_analysis_to_db,
+            resume.id,
+            cached_result,
+            db
+        )
+        message = "Re-analysis completed instantly using cached results 🚀"
+        source = "cache"
+    else:
+        # Cache miss - process with AI
+        print("💥 Cache miss for reanalysis - processing with AI")
+        background_tasks.add_task(
+            perform_ai_analysis,
+            resume.id,
+            resume.extracted_text,
+            job_title,
+            job_description,
+            str(current_user.id),
+            db
+        )
+        message = "Resume re-analysis started in background"
+        source = "api"
+    
     return ReanalyzeResponse(
-        message="Resume re-analysis started in background",
+        message=message,
         resume_id=resume_id,
         job_title=job_title,
-        job_description_provided=bool(job_description)
+        job_description_provided=bool(job_description),
+        source=source
     )
 
 @router.get("/list", response_model=ResumeListWrapper)
@@ -588,3 +674,37 @@ async def delete_resume(
         db.commit()
     
     return {"message": "Resume deleted successfully"}
+
+# Add cache management endpoints
+@router.post("/cache/clear")
+async def clear_user_cache(
+    current_user: User = Depends(get_current_user)
+):
+    """Clear cache for current user (useful after resume improvements)"""
+    if resume_cache.enabled:
+        resume_cache.invalidate_user_resumes(str(current_user.id))
+        return {"message": "Your analysis cache has been cleared. New analyses will use fresh AI results."}
+    else:
+        return {"message": "Cache is not enabled"}
+
+@router.get("/cache/status")
+async def get_cache_status(
+    current_user: User = Depends(get_current_user)
+):
+    """Get cache status for current user"""
+    if not resume_cache.enabled:
+        return {"cache_enabled": False}
+    
+    try:
+        # Count user's cached analyses
+        user_pattern = f"analysis:{current_user.id}:*"
+        user_keys = resume_cache.redis_client.keys(user_pattern)
+        
+        return {
+            "cache_enabled": True,
+            "user_cached_analyses": len(user_keys),
+            "total_cached_analyses": resume_cache.redis_client.dbsize(),
+            "message": f"You have {len(user_keys)} cached analyses"
+        }
+    except Exception as e:
+        return {"cache_enabled": True, "error": str(e)}
